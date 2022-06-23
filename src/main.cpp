@@ -33,25 +33,23 @@ void help();
 char *const_char_to_char(const char *str);
 bool in_folder(const char *filename, std::string folder_path, std::string &file_path);
 Compile_Tool convert_compile_tool(const char *compile_tool);
-bool read_config(const char *file_path, Info &details);
-std::string get_compile_tool(Compile_Tool tool);
+bool read_config(const char *file_path, Info &info);
+std::string get_compile_tool_cmake_str(Compile_Tool tool);
 std::string find_file_with_extension(std::string extension, std::string dir_path);
-int compile(Info details, std::string base_path);
-void create_details(std::string dir_path, std::string file_name, Info details);
+int compile(Info info, std::string base_path);
+void create_info(std::string dir_path, std::string file_name, Info info);
 
 int main(int argc, const char *argv[])
 {
     std::string current_dir = fs::current_path().string();
     std::string config_file_name = "cmake-build-tool-config.txt";
 
-    if (argc > 1 && strcmp(strlwr(const_char_to_char(argv[1])), "--help") == 0)
+    if (argc > 1 && (strcmp(strlwr(const_char_to_char(argv[1])), "--help") == 0 || strcmp(strlwr(const_char_to_char(argv[1])), "--h") == 0))
     {
         help();
         return 0;
     }
-    
-
-    
+      
     if (argc == 1)
     {
         std::string file_path;
@@ -62,12 +60,12 @@ int main(int argc, const char *argv[])
             return -1;
         }
 
-        Info details;
+        Info info;
 
-        if(!read_config(file_path.c_str(), details))
+        if(!read_config(file_path.c_str(), info))
             return -1;
 
-        return compile(details, current_dir);
+        return compile(info, current_dir);
     }
 
     if (argc != 4)
@@ -77,18 +75,20 @@ int main(int argc, const char *argv[])
     }
 
 
-    Info details;
+    Info info;
 
-    details.list_folder_path = std::string(argv[1]);
-    details.build_folder_path = std::string(argv[2]);
-    details.compile_tool = convert_compile_tool(strlwr(const_char_to_char(argv[3])));
+    info.list_folder_path = std::string(argv[1]);
+    info.build_folder_path = std::string(argv[2]);
+    info.compile_tool = convert_compile_tool(strlwr(const_char_to_char(argv[3])));
 
-    int res = compile(details, current_dir);
+    if(!compile(info, current_dir))
+    {
+        return -1;
+    }
 
-    if(res != 0)
-        return res;
+    create_info(current_dir, config_file_name, info);
 
-    create_details(current_dir, config_file_name, details);
+    return 0;
 }
 
 void help()
@@ -161,18 +161,18 @@ void help()
     resetConsole();
 }
 
-char *const_char_to_char(const char *str)
+char *const_char_to_char(const char *c_str)
 {
-    char *out_str = (char*)malloc(strlen(str) * sizeof(char));
+    char *str = (char*)malloc(strlen(c_str) * sizeof(char));
 
-    strcpy(out_str, str);
+    strcpy(str, c_str);
 
-    return out_str;
+    return str;
 }
 
 bool in_folder(const char *filename, std::string folder_path, std::string &file_path)
 {
-    folder_path.append("\\");
+    folder_path.append("/");
     folder_path.append(filename);
 
     if(fs::exists(folder_path))
@@ -216,21 +216,19 @@ Compile_Tool convert_compile_tool(const char *compile_tool)
     return Compile_Tool::INVALID;
 }
 
-bool read_config(const char *file_path, Info &details)
+bool read_config(const char *file_path, Info &info)
 {
     std::ifstream in(file_path);
 
-    std::getline(in, details.list_folder_path, '\n');
-    std::getline(in, details.build_folder_path, '\n');
+    std::getline(in, info.list_folder_path, '\n');
+    std::getline(in, info.build_folder_path, '\n');
     
     std::string compile_tool_str;
     std::getline(in, compile_tool_str, '\n');
 
-    std::cout<<details.list_folder_path<< " " << details.build_folder_path << " " << compile_tool_str << "\n";
+    info.compile_tool = convert_compile_tool(strlwr(const_char_to_char(compile_tool_str.c_str())));
 
-    details.compile_tool = convert_compile_tool(strlwr(const_char_to_char(compile_tool_str.c_str())));
-
-    if(details.compile_tool == Compile_Tool::INVALID)
+    if(info.compile_tool == Compile_Tool::INVALID)
     {
         perror("ERROR: Invalid Compile Tool");
         return false;
@@ -241,7 +239,7 @@ bool read_config(const char *file_path, Info &details)
     return true;
 }
 
-std::string get_compile_tool(Compile_Tool tool)
+std::string get_compile_tool_cmake_str(Compile_Tool tool)
 {
     switch(tool){
         case Compile_Tool::VISUAL_STUDIO_2022:
@@ -265,20 +263,23 @@ std::string find_file_with_extension(std::string extension, std::string dir_path
 
     if(!fs::exists(dir_path) || !fs::is_directory(dir_path))
     {
-        for (auto const & entry : fs::recursive_directory_iterator(dir_path))
-        {
-            if (entry.path().extension() == extension)
-                return entry.path().stem().string();
-        }
+        return "";
     }
+    
+    for (auto const & entry : fs::recursive_directory_iterator(dir_path))
+    {
+        if (entry.path().extension() == extension)
+            return entry.path().stem().string();
+    }
+    
     return "";
 }   
 
-int compile(Info details, std::string base_path)
+int compile(Info info, std::string base_path)
 {
-    std::string compile_tool_cmd = get_compile_tool(details.compile_tool);
+    std::string compile_tool_cmd = get_compile_tool_cmake_str(info.compile_tool);
 
-    std::string cmake_cmd = "cmake -S " + details.list_folder_path + " -B " + details.build_folder_path + " -G \"" + compile_tool_cmd + "\"";
+    std::string cmake_cmd = "cmake -S " + info.list_folder_path + " -B " + info.build_folder_path + " -G \"" + compile_tool_cmd + "\"";
 
     
     if(system(cmake_cmd.c_str()))
@@ -287,17 +288,17 @@ int compile(Info details, std::string base_path)
         return -1;
     }
 
-    fs::current_path(base_path + "/" + details.build_folder_path);
+    fs::current_path(info.build_folder_path);
 
     std::string compile_cmd;
 
-    switch(details.compile_tool)
+    switch(info.compile_tool)
     {
         case Compile_Tool::VISUAL_STUDIO_2022:
         case Compile_Tool::VISUAL_STUDIO_2019:
         case Compile_Tool::VISUAL_STUDIO_2017:
         case Compile_Tool::VISUAL_STUDIO_2015:
-            compile_cmd ="msbuild ./" + details.build_folder_path + "/" + find_file_with_extension(".sln", details.build_folder_path);
+            compile_cmd ="msbuild " + info.build_folder_path + "/" + find_file_with_extension(".sln", info.build_folder_path);
             if(system(compile_cmd.c_str()))
             {
                 perror("ERROR: msbuild command could not be executed\n");
@@ -326,16 +327,16 @@ int compile(Info details, std::string base_path)
     return 0;
 }
 
-void create_details(std::string dir_path, std::string file_name, Info details)
+void create_info(std::string dir_path, std::string file_name, Info info)
 {
-    dir_path += "\\";
+    dir_path += "/";
     dir_path += file_name;
 
     std::ofstream out(dir_path);
 
-    out << details.list_folder_path << '\n';
-    out << details.build_folder_path << '\n';
-    out << get_compile_tool(details.compile_tool) << '\n';
+    out << info.list_folder_path << '\n';
+    out << info.build_folder_path << '\n';
+    out << get_compile_tool_cmake_str(info.compile_tool) << '\n';
 
 
     out.close();
